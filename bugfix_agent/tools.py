@@ -6,11 +6,8 @@ streaming means the API does not validate them for us.
 """
 from __future__ import annotations
 
-import os
 import re
 import shlex
-import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -147,9 +144,11 @@ class ToolResult:
 
 
 class Toolbox:
-    def __init__(self, root: Path, default_timeout_s: int = 120):
+    def __init__(self, root: Path, default_timeout_s: int = 120, runner=None):
+        from .runner import LocalRunner
         self.root = Path(root).resolve()
         self.default_timeout_s = default_timeout_s
+        self.runner = runner or LocalRunner(self.root)  # DockerRunner in normal runs
 
     # -- helpers -----------------------------------------------------------
     def _path(self, rel: str) -> Path:
@@ -269,16 +268,13 @@ class Toolbox:
                 raise ToolError(f"Only git {', '.join(sorted(ALLOWED_GIT))} are allowed.")
         elif prog not in ALLOWED_COMMANDS:
             raise ToolError(f"'{prog}' is not allowed. Allowed: {', '.join(sorted(ALLOWED_COMMANDS))}, git.")
+        from .runner import CommandTimeout
         timeout = max(1, min(timeout_s or self.default_timeout_s, MAX_TIMEOUT_S))
-        # Put this interpreter's bin dir first so 'python' and 'pytest' mean the project venv.
-        # Day 2 replaces this with the Docker container's own environment.
-        env = dict(os.environ, PATH=f"{Path(sys.executable).parent}{os.pathsep}{os.environ.get('PATH', '')}",
-                   PYTHONDONTWRITEBYTECODE="1")
         try:
-            proc = subprocess.run(argv, cwd=self.root, capture_output=True, text=True, timeout=timeout, env=env)
-        except subprocess.TimeoutExpired:
-            raise ToolError(f"Command timed out after {timeout} s.")
+            proc = self.runner.run(argv, timeout)
+        except CommandTimeout as e:
+            raise ToolError(str(e))
         except FileNotFoundError:
             raise ToolError(f"'{argv[0]}' was not found.")
-        out = (proc.stdout or "") + (("\n[stderr]\n" + proc.stderr) if proc.stderr else "")
+        out = proc.stdout + (("\n[stderr]\n" + proc.stderr) if proc.stderr else "")
         return f"[exit code {proc.returncode}]\n{out.strip()}"

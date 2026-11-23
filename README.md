@@ -1,47 +1,75 @@
-# Bug-fix agent
+# Test-gated bug-fix agent
 
-An AI agent that fixes a reported bug in a Python repository. It investigates the code, writes a test that reproduces the bug, fixes the code, runs the tests and reports what it did. It always works on a copy of the repository, so the original is never changed.
+An AI agent that fixes a reported bug in a Python repository and has to prove it. It investigates the code, writes a test that reproduces the bug, fixes the code and runs the tests. When it says the bug is fixed, the harness (not the model) checks the proof: the new test must fail on the original code and pass with the fix, the whole suite must pass, and no test may be deleted or skipped. Every command runs in a locked Docker container. With a GitHub issue as input, it opens a draft pull request after a person approves.
 
-Status: Day 1 of 7. Working: the agent loop, code tools, a free Gemini backend (default) and a paid Claude backend, step and cost limits, run logs. Planned: Docker sandbox (Day 2), enforced reproduce-then-fix checks (Day 3), SWE-bench evaluation (Days 4 to 6), GitHub issue in and draft pull request out (Day 6).
+## How it works
+
+1. **Input:** a GitHub issue (`--github OWNER/REPO#N`) or a local repository plus issue text.
+2. **Agent loop:** the model picks one tool call at a time: `list_files`, `search_code`, `read_file`, `edit_file` (replace one exact match, or create a file), `run_command` (allowlisted programs, no shell, timeout) and `finish`.
+3. **Sandbox:** commands run in a Docker container with no network, a non-root user, 2 GB memory, 2 CPUs, 256 processes and all capabilities dropped.
+4. **Gates** (`bugfix_agent/gates.py`), run when the agent calls `finish` with status `fixed`:
+   1. a regression test was added or changed
+   2. application code was changed
+   3. no existing test was deleted
+   4. no skip, xfail, `noqa`, `pylint: disable` or `type: ignore` was added
+   5. the new test fails on the original code (checked in a separate copy with only the source changes undone)
+   6. the new test passes with the fix
+   7. the full test suite passes
+
+   If a check fails, `finish` is refused and the agent sees the report; after 3 refusals the run stops.
+5. **Output:** a diff, a run log and, in GitHub mode, a draft pull request (after you type `y`) with the root cause and the check table. GitHub credentials never enter the sandbox.
 
 ## Setup
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
+docker build -t bugfix-agent-sandbox:py3.12 sandbox/
 export GEMINI_API_KEY=...   # free key from aistudio.google.com (no card needed)
 ```
 
-The Gemini free tier costs nothing but has per-minute and per-day request limits (shown in AI Studio); the agent waits and retries when it hits the per-minute limit and stops cleanly when the daily quota is used up. Google may use free-tier prompts to improve its products, so use it on public or toy code, not private code.
+Docker Desktop must be running. GitHub mode needs the GitHub CLI signed in (`gh auth login`).
 
-The paid Claude backend (`--backend claude`) needs `ANTHROPIC_API_KEY` and prepaid credits from console.anthropic.com.
+**Models.** The default backend is the free Gemini API. It tries `gemini-3.8-flash`, `3.7-flash`, `3.6-flash`, `3.5-flash`, `3.5-flash-lite` and `3.1-flash-lite` in order, skipping any model that is overloaded (503), retired (404) or out of daily quota, and waits when it hits a per-minute limit. Google may use free-tier prompts to improve its products, so use it on public or demo code, not private code. A paid Claude backend (`--backend claude`, `ANTHROPIC_API_KEY`) is also available.
 
 ## Run
 
 ```bash
+# GitHub issue in, draft pull request out (asks before opening the PR)
+.venv/bin/python -m bugfix_agent --github Atmosu/bugfix-agent-demo#2
+
+# Local repository
 .venv/bin/python -m bugfix_agent --repo examples/toy_repo --issue-file examples/toy_issue.txt
 ```
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--repo` | required | Repository to fix (copied into the run folder) |
-| `--issue` / `--issue-file` | required | Bug report text |
-| `--backend` | `gemini` | `gemini` (free tier) or `claude` (paid) |
-| `--model` | Gemini fallback list / `claude-sonnet-5-5` | Gemini: one model or a comma-separated list tried in order; busy (503), retired (404) or out-of-quota models are skipped. Default list: 3.8-flash, 3.7-flash, 3.6-flash, 3.5-flash, 3.5-flash-lite, 3.1-flash-lite |
-| `--effort` | model default | Reasoning depth: minimal, low, medium, high, xhigh, max |
+| `--github` | | Issue to fix, `OWNER/REPO#N` or an issue URL |
+| `--yes` | off | GitHub mode: open the draft PR without asking |
+| `--repo`, `--issue` / `--issue-file` | | Local repository (copied, never changed) and bug report |
+| `--backend` | `gemini` | `gemini` (free) or `claude` (paid) |
+| `--model` | fallback list | Gemini: one model or a comma-separated list |
+| `--sandbox` | `docker` | `docker` or `local` (commands run on this machine) |
 | `--max-steps` | 40 | Maximum model calls |
-| `--max-cost` | 1.0 | Paid backends: stop before the next model call once this many US dollars are spent |
-| `--min-interval` | 0 | Gemini: minimum seconds between requests |
+| `--max-cost` | 1.0 | Paid backends: stop once this many US dollars are spent |
+| `--no-gates` | off | Trust the agent's `finish` (comparison runs only; not allowed with `--github`) |
+| `--runs-dir` | `~/bugfix-agent-runs` | Where run folders go |
 
-Each run creates `runs/<timestamp>/` with:
-- `repo/`: the working copy with the agent's changes (`git diff` shows them)
-- `trajectory.jsonl`: every model call and tool call, with tokens and cost
-- `summary.json`: status, root cause, steps, cost, final diff
-- `messages.json`: the full conversation
+Run folders live outside `~/Desktop` and `~/Documents` on purpose: on macOS, Docker Desktop needs extra permission for those folders, and a blocked mount freezes Docker.
 
-## Tools the agent has
+Each run folder holds `repo/` (the working copy), `trajectory.jsonl` (every model call, tool call and gate report), `summary.json` (status, checks, diff) and `messages.json`.
 
-`list_files`, `search_code`, `read_file` (with line numbers), `edit_file` (replace one exact match, or create a file), `run_command` (no shell; only python, pytest, ls, cat, head, tail, wc, find, grep and read-only git; timeout), `finish`. Paths cannot leave the repository. Until Day 2, commands run on this machine inside the copied repository.
+## Evaluation
+
+`bench/` holds a small shop library (`bench/shopkit`, 12 visible tests) and 10 planted bugs (`bench/bugs.py`), each with an issue text and a hidden test the agent never sees.
+
+```bash
+.venv/bin/python bench/run_bench.py --validate   # every bug: visible tests pass, hidden test fails, passes on correct code
+.venv/bin/python bench/run_bench.py --out bench/results/main   # 10 bugs x {gates, nogates}; resumable
+.venv/bin/python bench/summarize.py bench/results/main
+```
+
+A run counts as resolved when the hidden test and all visible tests pass on the agent's final code, in the sandbox.
 
 ## Tests
 
@@ -49,13 +77,15 @@ Each run creates `runs/<timestamp>/` with:
 .venv/bin/python -m pytest -q
 ```
 
-The loop tests use a scripted fake model, so they need no API key and cost nothing.
+The agent's own tests use a scripted fake model and a fake Gemini client, so they need no API key and cost nothing. Docker tests are skipped when the sandbox image is missing.
 
 ## Layout
 
 ```
-bugfix_agent/   tools.py, backends.py, agent.py, prompts.py, __main__.py
-examples/       toy_repo/ (textstats with a planted median bug) and toy_issue.txt
-tests/          tool tests and loop tests
-runs/           run outputs (not tracked by git)
+bugfix_agent/   agent.py (loop), tools.py, gates.py, runner.py (Docker/local), backends.py (Gemini, Claude),
+                github.py, prompts.py, __main__.py
+sandbox/        Dockerfile for the sandbox image
+bench/          shopkit/, bugs.py, run_bench.py, summarize.py, results/
+examples/       toy_repo/ with a planted median bug, toy_issue.txt
+tests/          tests for tools, gates, loop, Gemini backend and GitHub helpers
 ```

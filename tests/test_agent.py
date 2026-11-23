@@ -62,6 +62,39 @@ def test_scripted_fix_reaches_finish(tmp_path):
     assert backend.seen_messages == [1, 3, 5, 7, 9, 11]
 
 
+FINISH_FIXED = ("finish", {"status": "fixed", "root_cause": "r", "summary": "s",
+                           "files_changed": ["textstats/stats.py"], "tests_run": "t"})
+
+
+def test_gates_refuse_finish_without_test_then_accept(tmp_path):
+    backend = ScriptedBackend([
+        turn([("edit_file", {"path": "textstats/stats.py", "old_str": FIX[0], "new_str": FIX[1]})]),
+        turn([FINISH_FIXED]),                                   # refused: no regression test
+        turn([("edit_file", {"path": "tests/test_median_even.py", "old_str": "", "new_str": NEW_TEST})]),
+        turn([FINISH_FIXED]),                                   # accepted
+    ])
+    s = run_agent(TOY, "x", backend, tmp_path / "run", verbose=False)
+    assert s["status"] == "finished" and s["gate_rejections"] == 1 and s["gates"]["passed"]
+    events = [json.loads(l) for l in (tmp_path / "run" / "trajectory.jsonl").read_text().splitlines()]
+    refused = [e for e in events if e["event"] == "tool" and e["name"] == "finish" and e["is_error"]]
+    assert len(refused) == 1 and "regression test added or changed" in refused[0]["output"]
+
+
+def test_repeated_refusals_stop_the_run(tmp_path):
+    backend = ScriptedBackend([turn([FINISH_FIXED]) for _ in range(5)])
+    s = run_agent(TOY, "x", backend, tmp_path / "run", verbose=False, max_gate_rejections=3)
+    assert s["status"] == "gates_failed" and s["steps"] == 3 and s["result"] is None
+
+
+def test_without_gates_finish_is_trusted_but_checks_are_recorded(tmp_path):
+    backend = ScriptedBackend([
+        turn([("edit_file", {"path": "textstats/stats.py", "old_str": FIX[0], "new_str": FIX[1]})]),
+        turn([FINISH_FIXED])])
+    s = run_agent(TOY, "x", backend, tmp_path / "run", verbose=False, gates=False)
+    assert s["status"] == "finished" and s["result"] == "fixed"
+    assert s["gates"]["passed"] is False                        # recorded for the evaluation
+
+
 def test_step_cap(tmp_path):
     backend = ScriptedBackend([turn([("list_files", {"path": "."})]) for _ in range(10)])
     s = run_agent(TOY, "x", backend, tmp_path / "run", max_steps=3, verbose=False)

@@ -14,6 +14,11 @@ fix it.
 5. Finish. Call the finish tool with the root cause, what you changed and the last test results. \
 If you cannot fix the bug, call finish with status "not_fixed" and explain what you found.
 
+When you call finish with status "fixed", the harness checks your work and refuses finish if any \
+check fails: a test was added or changed; application code was changed; the new test fails on the \
+original code and passes with your fix; the full suite passes; no test was deleted and no skip, \
+xfail, noqa or type-ignore was added. If finish is refused, read the report and fix the cause.
+
 Rules:
 - Never delete, skip or weaken existing tests, and never edit a test just to make it pass.
 - Keep edits minimal and in the project's style.
