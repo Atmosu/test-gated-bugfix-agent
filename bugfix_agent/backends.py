@@ -91,11 +91,12 @@ class GeminiBackend:
 
     def __init__(self, models: list[str] | str | None = None, effort: str | None = None,
                  max_output_tokens: int = 32_000, max_retries: int = 6, retries_per_model: int = 1,
-                 min_interval_s: float = 0.0, sleep=time.sleep, log=print):
+                 min_interval_s: float = 0.0, timeout_s: float = 90.0, sleep=time.sleep, log=print):
         from google import genai
         from google.genai import errors, types
         self._types, self._errors = types, errors
-        self.client = genai.Client()  # reads GEMINI_API_KEY (or GOOGLE_API_KEY)
+        # reads GEMINI_API_KEY (or GOOGLE_API_KEY); a time limit stops a slow model from stalling the run
+        self.client = genai.Client(http_options=types.HttpOptions(timeout=int(timeout_s * 1000)))
         if isinstance(models, str):
             models = [models]
         self.models = list(models or self.DEFAULT_MODELS)
@@ -186,6 +187,7 @@ class GeminiBackend:
             model = self.model
             contents = self._contents(history, model)
             server_errors = 0
+            timeouts = 0
             delay = 5.0
             while True:
                 wait = self.min_interval_s - (time.monotonic() - self._last_call)
@@ -223,6 +225,13 @@ class GeminiBackend:
                 except Exception as err:  # dropped connection or timeout: retry the same model
                     if not _is_network_error(err):
                         raise
+                    if "timeout" in type(err).__name__.lower():
+                        timeouts += 1
+                        if timeouts > 1:
+                            reason = "not responding (timed out twice)"
+                            break
+                        self._log(f"  ({model}: no answer in time, trying once more)")
+                        continue
                     net_errors += 1
                     if net_errors > 4:
                         raise BackendError(f"Network problem talking to Gemini: {err}") from err

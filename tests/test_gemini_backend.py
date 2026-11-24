@@ -183,3 +183,17 @@ def test_network_error_is_retried():
     assert _is_network_error(httpx2.ReadError("Connection reset by peer"))
     assert _is_network_error(ConnectionResetError())
     assert not _is_network_error(ValueError("x"))
+
+
+def test_model_that_times_out_twice_is_skipped(make):
+    import httpx2
+    b, _ = make([httpx2.ReadTimeout("slow"), httpx2.ReadTimeout("slow"), response([types.Part(text="done")])],
+                models=["slow-model", "fast-model"])
+    t = b.step("sys", [{"kind": "user", "text": "fix"}], TOOL_SPECS)
+    assert t.text == "done" and b.model == "fast-model"
+
+
+def test_client_has_time_limit(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    b = GeminiBackend(timeout_s=30, log=lambda *a: None)
+    assert b.client._api_client._http_options.timeout == 30_000
