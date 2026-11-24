@@ -110,7 +110,11 @@ def main(argv: list[str] | None = None) -> int:
     fixed = summary["result"] == "fixed" and bool(summary["gates"] and summary["gates"]["passed"])
     if args.github and fixed:
         from . import github
-        answer = "y" if args.yes else input(f"\nOpen a draft pull request on {ref.slug} with this change? [y/N] ")
+        try:
+            answer = "y" if args.yes else input(f"\nOpen a draft pull request on {ref.slug} with this change? [y/N] ")
+        except (KeyboardInterrupt, EOFError):  # Ctrl+C or Ctrl+D at the prompt means no
+            print()
+            answer = "n"
         if answer.strip().lower() in ("y", "yes"):
             try:
                 url = github.open_draft_pr(ref, issue_data, summary)
