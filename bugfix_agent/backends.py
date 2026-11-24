@@ -71,6 +71,13 @@ def cost_usd(model: str, u: Usage) -> float:
 
 
 # --------------------------------------------------------------------------- Gemini
+def _is_network_error(err: BaseException) -> bool:
+    """True for dropped connections and timeouts (httpx, httpcore or socket level)."""
+    if isinstance(err, (ConnectionError, TimeoutError)):
+        return True
+    return type(err).__module__.split(".")[0].startswith(("httpx", "httpcore"))
+
+
 class GeminiBackend:
     """Google Gemini API (free tier). Needs GEMINI_API_KEY in the environment."""
 
@@ -174,6 +181,7 @@ class GeminiBackend:
         Returns (model_used, response)."""
         e = self._errors
         rate_waits = 0
+        net_errors = 0
         while True:
             model = self.model
             contents = self._contents(history, model)
@@ -212,6 +220,14 @@ class GeminiBackend:
                         break
                     self._sleep(delay)
                     delay *= 2
+                except Exception as err:  # dropped connection or timeout: retry the same model
+                    if not _is_network_error(err):
+                        raise
+                    net_errors += 1
+                    if net_errors > 4:
+                        raise BackendError(f"Network problem talking to Gemini: {err}") from err
+                    self._log(f"  ({model}: network error, retrying in {10 * net_errors} s)")
+                    self._sleep(10.0 * net_errors)
             if self._idx + 1 >= len(self.models):
                 raise BackendError(f"No Gemini model available right now (last: {model}, {reason}). "
                                    "Free models are often busy; try again later.")

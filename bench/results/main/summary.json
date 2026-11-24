@@ -1,0 +1,42 @@
+{
+  "gates": {
+    "runs": 10,
+    "resolved": 10,
+    "claimed_fixed": 10,
+    "false_claims": 0,
+    "reproduced": 10,
+    "gate_rejections": 0,
+    "runs_with_rejection": 0,
+    "median_steps": 11.0,
+    "median_seconds": 124,
+    "api_errors": 0,
+    "models": [
+      "gemini-3.5-flash",
+      "gemini-3.5-flash-lite",
+      "gemini-3.6-flash",
+      "gemini-3.7-flash",
+      "gemini-3.8-flash"
+    ],
+    "tokens_in": 307639,
+    "tokens_out": 10009
+  },
+  "nogates": {
+    "runs": 10,
+    "resolved": 10,
+    "claimed_fixed": 10,
+    "false_claims": 0,
+    "reproduced": 10,
+    "gate_rejections": 0,
+    "runs_with_rejection": 0,
+    "median_steps": 11.0,
+    "median_seconds": 120,
+    "api_errors": 0,
+    "models": [
+      "gemini-3.5-flash",
+      "gemini-3.5-flash-lite",
+      "gemini-3.6-flash"
+    ],
+    "tokens_in": 300075,
+    "tokens_out": 8944
+  }
+}

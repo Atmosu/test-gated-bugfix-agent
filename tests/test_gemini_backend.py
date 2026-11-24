@@ -175,3 +175,11 @@ def test_safety_block_is_refusal(make):
 def test_effort_max_maps_to_xhigh(make):
     b, _ = make([], effort="max")
     assert b._config("sys", TOOL_SPECS).thinking_config.thinking_level.name == "XHIGH"
+
+
+def test_network_error_is_retried():
+    import httpx2  # the transport google-genai uses here
+    from bugfix_agent.backends import _is_network_error
+    assert _is_network_error(httpx2.ReadError("Connection reset by peer"))
+    assert _is_network_error(ConnectionResetError())
+    assert not _is_network_error(ValueError("x"))
