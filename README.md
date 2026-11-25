@@ -2,6 +2,29 @@
 
 An AI agent that fixes a reported bug in a Python repository and has to prove it. It investigates the code, writes a test that reproduces the bug, fixes the code and runs the tests. When it says the bug is fixed, the harness (not the model) checks the proof: the new test must fail on the original code and pass with the fix, the whole suite must pass, and no test may be deleted or skipped. Every command runs in a locked Docker container. With a GitHub issue as input, it opens a draft pull request after a person approves.
 
+**Software development phase:** maintenance (corrective maintenance: fixing bugs reported after release), using tests from the testing phase as proof.
+
+**Presentation:** [presentation/Test-Gated_Bug-Fix_Agent_Detailed.pptx](presentation/Test-Gated_Bug-Fix_Agent_Detailed.pptx) (19 slides: phase, purpose, design, functionality, implementation, demo, results). The 11-slide version used for the class talk is [presentation/Test-Gated_Bug-Fix_Agent.pptx](presentation/Test-Gated_Bug-Fix_Agent.pptx).
+
+## Demo results
+
+Two GitHub issues on a demo repository (a copy of `bench/shopkit` with planted bugs; the repository is private, so the logs are copied here):
+
+| Issue | Steps | Time | Checks | Fix | Log |
+|---|---|---|---|---|---|
+| #1 Cart total ignores item quantities | 10 | 156 s | 7 / 7 | `price` → `price * qty` in `Cart.total()`, plus a regression test; draft PR opened after approval | [docs/sample_runs/issue-1](docs/sample_runs/issue-1) |
+| #2 Settings in capital letters are ignored | 13 | 132 s | 7 / 7 | `value.strip()` → `value.strip().lower()` in `parse_bool()`, plus test cases | [docs/sample_runs/issue-2](docs/sample_runs/issue-2) |
+
+Each folder has `summary.json` (status, checks, root cause, diff) and `trajectory.jsonl` (every model call and tool call, with the model's one-line reason).
+
+**Quick demo without GitHub:** after the setup below, run the agent on the small example project with a planted median bug:
+
+```bash
+.venv/bin/python -m bugfix_agent --repo examples/toy_repo --issue-file examples/toy_issue.txt
+```
+
+With no API key, `.venv/bin/python -m pytest -q` runs the agent's own 60 tests with a fake model.
+
 ## How it works
 
 1. **Input:** a GitHub issue (`--github OWNER/REPO#N`) or a local repository plus issue text.
@@ -35,8 +58,8 @@ Docker Desktop must be running. GitHub mode needs the GitHub CLI signed in (`gh 
 ## Run
 
 ```bash
-# GitHub issue in, draft pull request out (asks before opening the PR)
-.venv/bin/python -m bugfix_agent --github Atmosu/bugfix-agent-demo#2
+# GitHub issue in, draft pull request out (asks before opening the PR); use a repository you can push to
+.venv/bin/python -m bugfix_agent --github OWNER/REPO#N
 
 # Local repository
 .venv/bin/python -m bugfix_agent --repo examples/toy_repo --issue-file examples/toy_issue.txt
@@ -88,4 +111,7 @@ sandbox/        Dockerfile for the sandbox image
 bench/          shopkit/, bugs.py, run_bench.py, summarize.py, results/
 examples/       toy_repo/ with a planted median bug, toy_issue.txt
 tests/          tests for tools, gates, loop, Gemini backend and GitHub helpers
+docs/           sample_runs/ (logs of the two demo runs), planning/ (research summary written before the build;
+                it planned an open model with Claude escalation, replaced by the free Gemini fallback list)
+presentation/   slides
 ```

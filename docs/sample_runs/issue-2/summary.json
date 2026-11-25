@@ -1,0 +1,65 @@
+{
+  "status": "finished",
+  "result": "fixed",
+  "finish": {
+    "status": "fixed",
+    "summary": "Made parse_bool case-insensitive by calling lower() on the stripped input string, and added comprehensive test cases covering uppercase and mixed-case boolean setting values.",
+    "tests_run": "python -m pytest",
+    "files_changed": [
+      "shopkit/settings.py",
+      "tests/test_settings.py"
+    ],
+    "root_cause": "parse_bool compared stripped setting values directly against lowercase TRUE_WORDS without normalizing the input to lowercase first."
+  },
+  "error": null,
+  "steps": 13,
+  "gate_rejections": 0,
+  "gates_enforced": true,
+  "gates": {
+    "passed": true,
+    "checks": [
+      {
+        "name": "regression test added or changed",
+        "passed": true,
+        "detail": "tests/test_settings.py"
+      },
+      {
+        "name": "application code changed",
+        "passed": true,
+        "detail": "shopkit/settings.py"
+      },
+      {
+        "name": "no existing tests deleted",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "no skips or lint/type suppressions added",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "new test fails on the original code",
+        "passed": true,
+        "detail": "tests/test_settings.py:10: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_settings.py::test_parse_bool - AssertionError: assert False\n1 failed, 1 passed in 0.01s"
+      },
+      {
+        "name": "new test passes with the fix",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "full test suite passes",
+        "passed": true,
+        "detail": "12 passed in 0.02s"
+      }
+    ]
+  },
+  "cost_usd": 0.0,
+  "seconds": 132.2,
+  "backend": "gemini:gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite",
+  "sandbox": "DockerRunner",
+  "base": "575986a7b293d994957fe6900f299efd1b8abf1f",
+  "workdir": "~/bugfix-agent-runs/20261123-233212/repo",
+  "diff": "diff --git a/shopkit/settings.py b/shopkit/settings.py\nindex cfdaa65..00b8752 100644\n--- a/shopkit/settings.py\n+++ b/shopkit/settings.py\n@@ -4,7 +4,7 @@ TRUE_WORDS = {\"1\", \"true\", \"yes\", \"on\"}\n \n \n def parse_bool(value):\n-    return value.strip() in TRUE_WORDS\n+    return value.strip().lower() in TRUE_WORDS\n \n \n def parse_settings(text):\ndiff --git a/tests/test_settings.py b/tests/test_settings.py\nindex cd8a7b1..c19d51b 100644\n--- a/tests/test_settings.py\n+++ b/tests/test_settings.py\n@@ -7,3 +7,9 @@ def test_parse_settings():\n \n def test_parse_bool():\n     assert parse_bool(\"yes\") and not parse_bool(\"no\")\n+    assert parse_bool(\"TRUE\")\n+    assert parse_bool(\"Yes\")\n+    assert parse_bool(\"ON\")\n+    assert parse_bool(\"true\")\n+    assert not parse_bool(\"FALSE\")\n+    assert not parse_bool(\"NO\")\n"
+}
